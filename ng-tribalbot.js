@@ -7,6 +7,10 @@
  * @license GNU General Public License Version 2
  */
 
+ 
+/**
+ * ENUMs
+ */
 var buildings = {
     barracks: 'barracks',
     chapel: 'chapel',
@@ -25,19 +29,16 @@ var buildings = {
     wall: 'wall',
     warehouse: 'warehouse'
 };
-
 var buildingActions = {
     levelup: 'levelup',
     openScreen: 'open-screen'
 };
-
 var resourceTypes = {
     clay: 'clay',
     wood: 'wood',
     iron: 'iron',
     food: 'food'
 };
-
 var resourceWatchers = {
     clay: null,
     wood: null,
@@ -45,24 +46,33 @@ var resourceWatchers = {
     food: null
 };
 
-var delay = 2000;
 
+/**
+ * Scopes
+ */
+var $mainScope = angular.element($('#main-canvas')).scope(),
+	$buildingScope = angular.element($('#building-label-wrapper')).scope(),
+	// $buildingSubScope = null,
+	$resourcesScope = angular.element($('#resources-wrapper')).scope(),
+	$buildingQueueScope = angular.element($('#interface-building-queue ul')).scope(),
+	$bottomPanelScope = angular.element($('#interface-bottom-center')).scope(),
+	$resourceDepositScope = null;
 
-var $mainScope = angular.element($('#main-canvas')).scope();
-var $buildingScope = angular.element($('#building-label-wrapper')).scope();
-//var $buildingSubScope = null;
-var $resourcesScope = angular.element($('#resources-wrapper')).scope();
-var $buildingQueueScope = angular.element($('#interface-building-queue ul')).scope();
-var $bottomPanelScope = angular.element($('#interface-bottom-center')).scope();
+/**
+ * Global variables
+ */
+var buildQueue = [buildings.farm, buildings.timber_camp, buildings.warehouse, buildings.farm],
+	buildingQueue = $buildingQueueScope.buildingQueueData.queue,
+	inVillage = $bottomPanelScope.inVillageView;
 
-var buildQueue = [buildings.barracks, buildings.barracks, buildings.iron_mine, buildings.iron_mine, buildings.clay_pit, buildings.timber_camp, buildings.warehouse];
-var buildingQueue = $buildingQueueScope.buildingQueueData.queue;
-var inVillage = $bottomPanelScope.inVillageView;
-
+/**
+ * Services
+ */
+var windowDisplayService = angular.element(document.body).injector().get('windowDisplayService');
 
 function build() {
     console.info('Build process started!');
-    if (buildingQueue.length >=0 && buildQueue.length >= 1) {
+    if (buildingQueue.length >= 0 && buildQueue.length >= 1) {
         console.info('1 slot is available.');
         upgradeLevel(buildQueue[0]);
         buildQueue.shift();
@@ -200,3 +210,11 @@ function toggleView() {
     if (inVillage) console.info('You are in village.');
     else console.info('You are on map.');
 }
+
+function openResourceDeposit() {
+	windowDisplayService.openResourceDeposit();
+	$resourceDepositScope = angular.element($('.win-main.resource-deposit')).scope();
+}
+
+
+//hasRemainingTime, jobs
