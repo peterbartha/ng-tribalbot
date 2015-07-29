@@ -47,15 +47,17 @@ var resourceWatchers = {
 
 var delay = 2000;
 
+
 var $mainScope = angular.element($('#main-canvas')).scope();
 var $buildingScope = angular.element($('#building-label-wrapper')).scope();
 //var $buildingSubScope = null;
 var $resourcesScope = angular.element($('#resources-wrapper')).scope();
 var $buildingQueueScope = angular.element($('#interface-building-queue ul')).scope();
+var $bottomPanelScope = angular.element($('#interface-bottom-center')).scope();
 
-var buildQueue = [buildings.barracks, buildings.timber_camp, buildings.timber_camp, buildings.clay_pit];
+var buildQueue = [buildings.barracks, buildings.barracks, buildings.iron_mine, buildings.iron_mine, buildings.clay_pit, buildings.timber_camp, buildings.warehouse];
 var buildingQueue = $buildingQueueScope.buildingQueueData.queue;
-
+var inVillage = $bottomPanelScope.inVillageView;
 
 
 function build() {
@@ -102,9 +104,9 @@ function getResources() {
 
 function resourcesAreEnough(costs, resources) {
     return costs.clay <= resources.clay &&
-           costs.wood <= resources.wood &&
-           costs.iron <= resources.iron &&
-           costs.food <= resources.food;
+        costs.wood <= resources.wood &&
+        costs.iron <= resources.iron &&
+        costs.food <= resources.food;
 }
 
 function getMissingResourcesList(costs, resources) {
@@ -117,10 +119,10 @@ function getMissingResourcesList(costs, resources) {
 }
 
 /*
-$resourcesScope.$watch('resources.clay.currentProduction', function(value) {console.log(value)});
-$resourcesScope.$watch('resources.iron.currentProduction', function(value) {console.log(value)});
-$resourcesScope.$watch('resources.wood.currentProduction', function(value) {console.log(value)});
-*/
+ $resourcesScope.$watch('resources.clay.currentProduction', function(value) {console.log(value)});
+ $resourcesScope.$watch('resources.iron.currentProduction', function(value) {console.log(value)});
+ $resourcesScope.$watch('resources.wood.currentProduction', function(value) {console.log(value)});
+ */
 
 $buildingQueueScope.$watch('buildingQueueData.queue.length', function(newLen, oldLen) {
     console.info('Building queue size is: ' + newLen);
@@ -148,15 +150,15 @@ $buildingQueueScope.$watch('buildingQueueData.queue.length', function(newLen, ol
         if (missing.indexOf(resourceTypes.clay) >= 0 && !resourceWatchers.clay) {
             console.info('Clay is not enough. Watcher added.');
             resourceWatchers.clay = $resourcesScope.$watch('resources.clay.currentProduction', function(quanity) {
-               if (quanity >= costs.clay) {
-                   resources = getResources();
-                   if (resourcesAreEnough(costs, resources)) {
-                       build();
-                   }
-                   resourceWatchers.clay();
-                   resourceWatchers.clay = null;
-                   console.info('Clay watcher removed.');
-               }
+                if (quanity >= costs.clay) {
+                    resources = getResources();
+                    if (resourcesAreEnough(costs, resources)) {
+                        build();
+                    }
+                    resourceWatchers.clay();
+                    resourceWatchers.clay = null;
+                    console.info('Clay watcher removed.');
+                }
             });
         }
 
@@ -191,3 +193,10 @@ $buildingQueueScope.$watch('buildingQueueData.queue.length', function(newLen, ol
         }
     }
 });
+
+function toggleView() {
+    $bottomPanelScope.toggleView();
+    inVillage = !inVillage;
+    if (inVillage) console.info('You are in village.');
+    else console.info('You are on map.');
+}
