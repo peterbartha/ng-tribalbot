@@ -44,21 +44,25 @@ var buildings = {
         iron: null,
         food: null
     },
-    jobState = {
+    jobStates = {
         running: 0,
         completed: 1,
         ready: 2
+    },
+    internalEvents = {
+        RESOURCE_DEPOSIT_JOB_COLLECTIBLE: 'Internal/ResourceDeposit/collectible'
     };
 
 // Scope variables for manipulating view model
+var $rootScope = angular.element(document).scope();
 var $scope = {
     main: getAngularScope('#main-canvas'),
-    building: getAngularScope('#building-label-wrapper'),
     resources: getAngularScope('#resources-wrapper'),
     buildingQueue: getAngularScope('#interface-building-queue ul'),
     bottomPanel: getAngularScope('#interface-bottom-center'),
 
     // initialize with delay
+    building: null,
     buildingSubMenu: null,
     resourceDeposit: null,
     warehouse: null
@@ -66,16 +70,18 @@ var $scope = {
 
 // Useful service references for lower access
 var $service = {
-    windowDisplay: getAngularService('windowDisplayService')
+    windowDisplay: getAngularService('windowDisplayService'),
+    modelData: getAngularService('modelDataService')
 };
 
 // Watching values
-var $watchers = {
-    resourceDepositJobs: null
+var $watcher = {
+    resourceDepositJobs: null,
+    buildQueue: null
 };
 
 // Global variables
-var buildQueue = [buildings.clay_pit],
+var buildQueue = [buildings.headquarter, buildings.tavern, buildings.headquarter, buildings.warehouse, buildings.warehouse, buildings.wall],
     buildingQueue = $scope.buildingQueue.buildingQueueData.queue,
     inVillage = $scope.bottomPanel.inVillageView;
 
@@ -84,15 +90,34 @@ var buildQueue = [buildings.clay_pit],
  * Constructor for bot
  */
 function initialize() {
-    $scope.building.openMenu(buildings.headquarter);
-    window.setTimeout(function() {
-        $scope.buildingSubMenu = angular.element($('#context-menu ul')).scope();
-    }, 1000);
+    console.log('Initializing...');
+
+
+    initBuildingPanels().then(function(buildingScope) {
+        $scope.building = buildingScope;
+
+        initBuildingSubPanels(buildingScope).then(function(buildingSubMenuScope) {
+            $scope.buildingSubMenu = buildingSubMenuScope;
+            console.info('\tBuild panels initialized.');
+
+            initWarehouse(buildingScope, buildingSubMenuScope).then(function(warehouseScope) {
+                $scope.warehouse = warehouseScope;
+                closeWarehousePanel();
+                console.info('\tWarehouse initialized.');
+                console.log('Initialization complete.');
+            });
+        });
+    });
+
+    initResourceDeposit().then(function(resourceDepositScope) {
+        $scope.resourceDeposit = resourceDepositScope;
+        console.info('\tResource deposit initialized.')
+    });
 
     $scope.bottomPanel.$watch('inVillageView', function(isVillageView) {
-        inVillage = isVillageView;
-        if (inVillage) console.info('You are in village.');
-        else console.info('You are on map.');
+        if (inVillage !== isVillageView) {
+            inVillage = isVillageView;
+        }
     });
 }
 
@@ -100,15 +125,17 @@ function initialize() {
  * Starting automated build
  */
 function startAutoBuild() {
-    $scope.buildingQueue.$watch('buildingQueueData.queue.length', function(newLen) {
-        console.info('Building queue size is: ' + newLen);
+    console.info('Automatic building started.');
+    $watcher.buildQueue = $scope.buildingQueue.$watch('buildingQueueData.queue.length', function(newLen) {
 
         if (newLen >= 2) {
-            console.error('Building queue is full!');
+            console.warn('\tBuilding queue is full!');
             return;
         }
         if (buildQueue.length === 0) {
-            console.error('Building queue is empty!');
+            $watcher.buildQueue();
+            $watcher.buildQueue = null;
+            console.info('Automatic building stopped. Watchers removed.');
             return;
         }
 
@@ -120,21 +147,21 @@ function startAutoBuild() {
             build();
         } else {
             console.log('\n');
-            console.error('Not enough resource for building ' + nextBuilding);
+            console.warn('\tNot enough resource for building ' + nextBuilding);
             var missing = getMissingResourcesList(costs, resources);
-            console.error('Missing resource(s): ' + missing.join(', '));
+            console.warn('\tMissing resource(s): ' + missing.join(', '));
 
             if (missing.indexOf(resourceTypes.clay) >= 0 && !resourceWatchers.clay) {
-                console.info('Clay is not enough. Watching resource values.');
-                addResourceWatcher(resourceTypes.clay, costs);
+                console.info('\tClay is not enough. Watching resource values.');
+                addBuildResourceWatcher(resourceTypes.clay, costs);
             }
             if (missing.indexOf(resourceTypes.wood) >= 0 && !resourceWatchers.wood) {
-                console.info('Wood is not enough. Watching resource values.');
-                addResourceWatcher(resourceTypes.wood, costs);
+                console.info('\tWood is not enough. Watching resource values.');
+                addBuildResourceWatcher(resourceTypes.wood, costs);
             }
             if (missing.indexOf(resourceTypes.iron) >= 0 && !resourceWatchers.iron) {
-                console.info('Iron is not enough. Watching resource values.');
-                addResourceWatcher(resourceTypes.iron, costs);
+                console.info('\tIron is not enough. Watching resource values.');
+                addBuildResourceWatcher(resourceTypes.iron, costs);
             }
         }
     });
@@ -149,7 +176,7 @@ function getBuildingCosts(building) {
     if ($scope.building.buildings[building] && $scope.building.buildings[building].nextLevelCosts) {
         return $scope.building.buildings[building].nextLevelCosts;
     } else {
-        console.error('Building ' + building + ' is not in buildings list.');
+        console.error('\tBuilding ' + building + ' is not in buildings list.');
         return null;
     }
 }
@@ -161,7 +188,7 @@ function getBuildingCosts(building) {
 function upgradeLevel(building) {
     $scope.building.openMenu(building);
     $scope.buildingSubMenu.openSubMenu(buildingActions.levelup);
-    console.info('Building task added: ' + building);
+    console.info('\tBuilding task added: ' + building);
 }
 
 /**
@@ -172,7 +199,7 @@ function build() {
         upgradeLevel(buildQueue[0]);
         buildQueue.shift();
     } else {
-        console.error('Slots is full.');
+        console.warn('\tSlots is full.');
     }
 }
 
@@ -198,16 +225,16 @@ function getResources() {
  * @param {string} resourceType
  * @param {Object} costs
  */
-function addResourceWatcher(resourceType, costs) {
+function addBuildResourceWatcher(resourceType, costs) {
     resourceWatchers[resourceType] = $scope.resources.$watch('resources.'+ resourceType +'.currentProduction', function(quanity) {
-        if (quanity >= costs.iron) {
+        if (quanity >= costs[resourceType]) {
             var resources = getResources();
             if (resourcesAreEnough(costs, resources)) {
                 build();
             }
             resourceWatchers[resourceType]();
             resourceWatchers[resourceType] = null;
-            console.info('Watcher removed from '+ resourceType +' resource.');
+            console.info('\tWatcher removed from '+ resourceType +' resource.');
         }
     });
 }
@@ -260,8 +287,7 @@ function getMinimumMineResource() {
     return minimum;
 }
 
-function sortResourcesByAmount() {
-    var resources = getResources();
+function sortResourcesByAmount(resources) {
     return Object.keys(resources).sort(function(a, b) {
         return resources[a]-resources[b];
     });
@@ -274,6 +300,17 @@ function getWarehouseStorage() {
         console.error('Warehouse\'s scope is not defined.');
         return null;
     }
+}
+
+function getResourceListAmount(resourceList) {
+    var result = {};
+    var resources = getResources(); // get global resources
+
+    for (var i=0; i<resourceList.length; i++) {
+        var key = resourceList[i];
+        result[key] = resources[key];
+    }
+    return result;
 }
 
 /**
@@ -296,6 +333,10 @@ function getAngularService(serviceName) {
     return service ? service : null;
 }
 
+function $timeout(fn, delay) {
+    return window.setTimeout(fn, delay);
+}
+
 /**
  * Switch view between village and map
  */
@@ -307,10 +348,11 @@ function toggleView() {
  * Opens resource deposit window for mining
  */
 function openResourceDeposit() {
-    $service.windowDisplay.openResourceDeposit();
-    window.setTimeout(function() {
-        $scope.resourceDeposit = angular.element($('.win-main.resource-deposit')).scope();
-    }, 1000);
+    initResourceDeposit();
+}
+
+function closeResourceDeposit() {
+    $scope.resourceDeposit.closeWindow();
 }
 
 /**
@@ -319,58 +361,66 @@ function openResourceDeposit() {
 function openWarehousePanel() {
     $scope.building.openMenu(buildings.warehouse);
     $scope.buildingSubMenu.openSubMenu(buildingActions.openScreen);
-    window.setTimeout(function() {
-        $scope.warehouse = angular.element($('.building-warehouse .win-content')).scope();
-    }, 1000);
 }
 
-function autoMiningDeposit() {
-    if ($scope.resourceDeposit) {
-        if (!!($scope.resourceDeposit.collectibleAndRunningJobs.length > 0)) {
-            console.info('Job already started.');
-            if ($watchers.resourceDepositJobs !== null) return; // user already has a registered watcher
-        } else {
+function closeWarehousePanel() {
+    $scope.warehouse.closeWindow();
+}
+
+function startAutoMiningDeposit() {
+    console.info('Start automatic mining of resource deposit...');
+    $scope.resourceDeposit = getAngularScope('.win-main.resource-deposit'); // refresh scope object
+    startResourceDepositJob();
+
+    $rootScope.$on(internalEvents.RESOURCE_DEPOSIT_JOB_COLLECTIBLE, function() {
+        $scope.resourceDeposit = getAngularScope('.win-main.resource-deposit'); // refresh scope object
+        if (!!($scope.resourceDeposit.collectibleAndRunningJobs.length > 0) && !$scope.resourceDeposit.resetExpired) {
+            var job = $scope.resourceDeposit.collectibleAndRunningJobs[0];
+            collectResourceDepositJob(job).then(function() {
+                console.info('\tJob ('+ job.id + ') collected.');
+                $timeout(function() {
+                    if ($scope.resourceDeposit.jobs && $scope.resourceDeposit.jobs.length > 0) {
+                        startResourceDepositJob();
+                    } else {
+                        console.warn('\tRun out of resource deposit jobs.')
+                    }
+                }, 3000);
+            });
+        }
+    });
+
+    $watcher.resourceDepositJobs = $scope.resourceDeposit.$watch('jobs.length', function(newLen, oldLen) {
+        if (newLen > 0 && oldLen === undefined) {
             startResourceDepositJob();
         }
-
-        $watchers.resourceDepositJobs = $scope.resourceDeposit.$watch('jobs.length', function() {
-            startResourceDepositJob();
-        });
-    }
+    });
 }
 
 function startResourceDepositJob() {
     var jobs = $scope.resourceDeposit.jobs;
     var warehouseStorage = getWarehouseStorage();
-    var resources = getResources();
-    var sortedResources = sortResourcesByAmount();
+    var jobResourceTypes = [];
 
-    // remove food from the sorted list
-    var foodIndex = sortedResources.indexOf(resourceTypes.food);
-    if (foodIndex > -1) {
-        sortedResources.splice(foodIndex, 1);
-    }
-
-
-    for (var i = 0; i < jobs.length; i++) {
+    // build a list with available job's resource types
+    for (var i=0; i<jobs.length; i++) {
         var job = jobs[i];
-        var jobStateWatcher = null;
+        if (jobResourceTypes.indexOf(job.resource_type) === -1) {
+            jobResourceTypes.push(job.resource_type);
+        }
+    }
+    var resources = getResourceListAmount(jobResourceTypes);
+    var sortedResources = sortResourcesByAmount(resources);
 
+
+    for (var i=0; i<jobs.length; i++) {
+        var job = jobs[i];
         if (job.resource_type === sortedResources[0] && (job.amount + resources[job.resource_type] <= warehouseStorage)) {
-            console.info('Resource deposit job started: '+ job.resource_type +' ('+ job.id + ')');
+            console.info('\tResource deposit job started: '+ job.resource_type +' ('+ job.id + ')');
             $scope.resourceDeposit.startJob(job);
-
-            jobStateWatcher = $scope.resourceDeposit.$watch('jobs['+ i +'].state', function(newState) {
-                if (newState === jobState.completed) {
-                    console.info('Resource deposit job completed: '+ job.resource_type +' ('+ job.id + ')');
-                    $scope.resourceDeposit().collectJob(job);
-                    jobStateWatcher();
-                }
-            });
+            return;
         }
     }
 }
-
 
 /**
  * Public functions
@@ -383,9 +433,61 @@ function startResourceDepositJob() {
  };
  })();
  */
-/*
- $resourcesScope.$watch('resources.clay.currentProduction', function(value) {console.log(value)});
- $resourcesScope.$watch('resources.iron.currentProduction', function(value) {console.log(value)});
- $resourcesScope.$watch('resources.wood.currentProduction', function(value) {console.log(value)});
- */
-//hasRemainingTime, jobs
+
+
+
+function initBuildingPanels() {
+    var promise = new Promise(function(resolve, reject) {
+        // Open village view for initialize scopes
+        if (!inVillage) {
+            toggleView();
+
+            $timeout(function() {
+                resolve(getAngularScope('#building-label-wrapper'));
+            }, 2000);
+        } else {
+            resolve(getAngularScope('#building-label-wrapper'));
+        }
+    });
+    return promise;
+}
+
+function initBuildingSubPanels(buildingScope) {
+    var promise = new Promise(function(resolve, reject) {
+        buildingScope.openMenu(buildings.headquarter);
+        $timeout(function() {
+            resolve(getAngularScope('#context-menu ul'));
+        }, 1000);
+    });
+    return promise;
+}
+
+function initWarehouse(buildingScope, buildingSubMenuScope) {
+    var promise = new Promise(function(resolve, reject) {
+        buildingScope.openMenu(buildings.warehouse);
+        buildingSubMenuScope.openSubMenu(buildingActions.openScreen);
+        $timeout(function() {
+            resolve(getAngularScope('.building-warehouse .win-content'));
+        }, 1000);
+    });
+    return promise;
+}
+
+function initResourceDeposit() {
+    var promise = new Promise(function(resolve, reject) {
+        $service.windowDisplay.openResourceDeposit();
+        $timeout(function() {
+            resolve(getAngularScope('.win-main.resource-deposit'));
+        }, 1000);
+    });
+    return promise;
+}
+
+function collectResourceDepositJob(job) {
+    var promise = new Promise(function(resolve, reject) {
+        $timeout(function() {
+            resolve($scope.resourceDeposit.collectJob(job));
+        }, 2000);
+    });
+    return promise;
+}
