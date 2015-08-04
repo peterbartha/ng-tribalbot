@@ -11,6 +11,7 @@
  */
 // ENUMs for types
 var buildings = {
+        academy: 'academy',
         barracks: 'barracks',
         chapel: 'chapel',
         church: 'church',
